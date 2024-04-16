@@ -23,10 +23,10 @@ def man2text(doc_dir):
             if utils.path_exist(cur_path + '.txt', True) < 0:
                 with open(cur_path + '.txt', "w") as f:
                     cmd = ['man', cur_path]
-                    ret = subprocess.run(cmd, stdout=f)
+                    ret = subprocess.run(cmd, stdout=f, capture_output=True, text=True)
                     # xxx: "man: -:1: warning: failed .so request" ?
                     if ret.returncode != 0:
-                        raise Exception("Failure during running `man`.")
+                        raise Exception(f"Failure during running `man` with error {ret.stderr}")
             doc_files.append(cur_path + '.txt')
     return doc_files
 
