@@ -1,182 +1,164 @@
 #!/usr/bin/env python3
-from . import utils
-import re, json
+import os
+import shutil
+import logging
+
+from ..builder import generate_bc
 
 
-def rm_useless_asterisk(string: str):
-    if len(string) == 0:
-        return ""
-    head_index = 0
-    end_index = len(string)
-    while head_index < len(string) and string[head_index] == '*':
-        head_index += 1
-    while end_index > 0 and string[end_index - 1] in ['*', '.', '\n']:
-        end_index -= 1
-    return string[head_index:end_index]
+def color_str(str, color='red'):
+    colors = ['black', 'red', 'green', 'yellow', 'blue', 'magenta', 'cyan']
+    if color not in colors:
+        return str
+    return "\033[3%dm" % colors.index(color) + str + "\033[m"
 
 
-def rm_useless_space(string: str, head=True, end=True):
-    if len(string) == 0:
-        return ""
-    head_index = 0
-    end_index = len(string)
-    if head:
-        while head_index < len(string) and string[head_index] in [' ', '\n']:
-            head_index += 1
-    if end:
-        while end_index > 0 and string[end_index - 1] in [' ', '\n']:
-            end_index -= 1
-    return string[head_index:end_index]
+logging.basicConfig(level=logging.INFO,
+                    format='[%(asctime)s] %(levelname)s(%(name)s): %(message)s',
+                    datefmt='%Y-%m-%d %H:%M:%S')
+logger = logging.getLogger(color_str(f"UTILS", 'yellow'))
 
 
-def rm_annotations(ori_def):
-    new_def = re.sub(r'/\*.*?\*/', '', ori_def, flags=re.S)
-    new_def = re.sub(r'(//.*)', '', new_def)
-    return new_def
+def config_log_file(logger, log_path, mode="w"):
+    fh = logging.FileHandler(log_path, mode)
+    f_format = logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s", datefmt='%Y-%m-%d %H:%M:%S')
+    fh.setFormatter(f_format)
+    logger.addHandler(fh)
 
 
-'''
-Get the definition of the function.
-Note: this is an empirical implementation.
-Output:
-    outdated: [type, func_name, arg1, arg2, ..., argn]
-    now: {"func_name": .., "func_type": .., "args_name": .., "args_type": ..}
-xxx: should we remain the type of arguments?
-TODO: further identify the sub-arguments of internal callback functions?
-'''
-def get_definition(definition):
-    # output
-    func_name, func_type = "", ""
-    args_name, args_type = [], []
-    arg_name_tmp, arg_type_tmp = "", ""
-    # status
-    def_frame_size = 0
-    arg_status, fun_name_status = False, False
-    valid_position = False
-    is_callback_arg = False
-    # Remove annotations
-    definition = rm_annotations(definition)
-    # From the last character to the first
-    for i, c in enumerate(definition[::-1]):
-        if is_callback_arg:
-            arg_name_tmp += c
-        # name/parameter can be combined with "A-Z", "a-z", "0-9" or "_".
-        elif arg_status == True or fun_name_status == True:
-            if (c >= 'a' and c <= 'z') or (c >= 'A' and c <= 'Z') or (c >= '0' and c <= '9') \
-                    or c == '_' or c == '[' or c == ']':
-                if arg_status:
-                    arg_name_tmp += c
-                else:
-                    func_name += c
-                valid_position = True
-            elif valid_position == False and c == ' ':  # skip invalid space
-                continue
-            else:
-                if fun_name_status == True:  # store the type and return
-                    fun_name_status = False
-                    func_name = func_name[::-1]
-                    func_type = definition[:-i]
-                    break
-                arg_name_tmp = rm_useless_space(arg_name_tmp[::-1])
-                if arg_name_tmp not in ["", "void"]:
-                    args_name.append(arg_name_tmp)
-                # Reset status...
-                arg_status = False  # reset arg_status
-                arg_name_tmp = ""  # clear up arg_name_tmp
-                valid_position = False  # reset valid_position
-        # In the current function
-        if def_frame_size == 1:
-            if c == ',':
-                if arg_name_tmp != "":
-                    arg_name_tmp = rm_useless_space(arg_name_tmp[::-1])
-                    if arg_name_tmp not in ["", "void"]:
-                        args_name.append(arg_name_tmp)
-                    arg_name_tmp = ""
-                arg_status = True
-                arg_type_tmp = rm_useless_space(arg_type_tmp[::-1])
-                if arg_type_tmp == "" and len(args_type) == len(args_name):
-                    continue
-                args_type.append(arg_type_tmp)
-                # variable-length arguments?
-                if len(args_type) != len(args_name):
-                    args_name.append("")
-                arg_type_tmp = ""
-                continue
-            elif arg_status == False and c not in ['(', ')']:
-                arg_type_tmp += c
-        if c == ')':
-            if def_frame_size == 0:
-                arg_status = True
-            elif def_frame_size == 1:
-                is_callback_arg = True
-                arg_name_tmp += c
-            def_frame_size += 1
-        elif c == '(':
-            def_frame_size -= 1
-            if def_frame_size == 0:
-                arg_type_tmp = rm_useless_space(arg_type_tmp[::-1])
-                if arg_type_tmp != "" or len(args_type) != len(args_name):
-                    args_type.append(arg_type_tmp)
-                # variable-length arguments?
-                if len(args_type) != len(args_name):
-                    args_name.append("")
-                fun_name_status = True  # BTW, get the func_name
-            elif def_frame_size == 1:
-                is_callback_arg = False
-    # If it is only a name without type
-    if fun_name_status == True:
-        func_name = func_name[::-1]
-        func_type = "void"
-    # Discard meaningless characters
-    if '\n' in func_type:
-        func_type = func_type.split('\n')[-1]
-    func_type = rm_useless_space(func_type)
-    return {"func_name": func_name, "func_type": func_type, 
-            "args_name": args_name[::-1], "args_type": args_type[::-1]}
+def rmdir(path: str):
+    if os.path.isdir(path) and not os.path.islink(path):
+        shutil.rmtree(path)
+    elif os.path.exists(path):
+        os.remove(path)
 
 
-def read_docfile(doc_file):
-    if utils.path_exist(doc_file) != 0:
+def mkdir(path: str):
+    if not os.path.exists(path):
+        try:
+            os.mkdir(path)
+        except PermissionError:
+            logger.warn(color_str(f"Permission denied: {path}"))
+            return -1
+        except:
+            logger.warn(color_str(f"can not create the directory: {path}"))
+            return -1
+    return 0
+
+
+def generate_tmp_folder(base_dir="."):
+    # xxx: Maybe need to generate randomly if multiple instances are running at the same time?
+    tmp_name = "tmp_folder"
+    if mkdir(base_dir + "/" + tmp_name) == 0:
+        return tmp_name
+    return ""
+
+
+def path_exist(path: str, no_warn=False):
+    if not os.path.exists(path):
+        if not no_warn:
+            logger.warn(color_str(f"can not find the file or directory: {path}"))
+        return -1
+    return 0
+
+
+def read_file(file_path: str):
+    data = ""
+    with open(file_path) as f:
+        data = f.read()
+    return data
+
+
+def get_bc_files(out_dir: str):
+    for root, dirs, files in os.walk(out_dir):
+        for name in files:
+            bc_file = os.path.join(root, name)
+            if bc_file.endswith(".bc"):
+                yield bc_file
+
+
+def get_all_bc_files(in_dir: str):
+    files = []
+    for file in get_bc_files(in_dir):
+        files.append(file)
+    return files
+
+
+def bc_files_to_run(args):
+    if args.outdir == None:
+        args.outdir = os.path.join(args.codebase, "cad-output")
+    else:
+        args.outdir = os.path.abspath(args.outdir)
+    if mkdir(args.outdir) != 0:
         return []
-    with open(doc_file, "r", encoding="utf-8") as f:
-        return f.readlines()
+
+    if args.bcdir == None:
+        args.bcdir = os.path.join(args.codebase, "bc-files")
+    else:
+        args.bcdir = os.path.abspath(args.bcdir)
+    if path_exist(args.bcdir) != 0 and generate_bc.main(args) != 0:
+        return []
+
+    return [bc_file for bc_file in get_all_bc_files(args.bcdir) if args.bc == '' or args.bc in bc_file]
 
 
-def clean_text(doc_text):
-    '''expand abbreviations'''
-    abbrs = {"don't": "do not", "Don't": "do not", "doesn't": "does not", "Doesn't": "does not", "didn't": "did not",
-                "can't": "can not", "Can't": "can not", "couldn't": "could not", "Couldn't": "could not",
-                "shouldn't": "should not", "Shouldn't": "should not", "should've": "should have",
-                "mightn't": "might not", "mustn't": "must not", "Mustn't": "must not", "needn't": "need not",
-                "haven't": "have not", "hasn't": "has not", "hadn't": "had not", 
-                "you're": "you are", "You're": "you are", "you'd": "you should", "You'd": "you should",
-                "it's": "it is", "It's": "it is", "isn't": "is not", "Isn't": "is not", "'ll": " will",
-                "aren't": "are not", "Aren't": "are not", "won't": "will not", " n't": " not", "'d": ""}
-    for abbr in abbrs:
-        if re.search(abbr, doc_text):
-            doc_text = re.sub(abbr, abbrs[abbr], doc_text)
-    # xxx: TODO: replace bad character...
-
-    doc_text = re.sub(r'-\n', '', doc_text)
-    doc_text = re.sub(r'\*|\.|\n+$', '', doc_text)
-    doc_text = re.sub(r'\s+', ' ', doc_text)
-    doc_text = re.sub(r'\[\d+\]', '', doc_text)
-    return doc_text
+def get_feature_file(out_dir: str):
+    for root, dirs, files in os.walk(out_dir):
+        for name in files:
+            feature_file = os.path.join(root, name)
+            if feature_file.endswith(".fea.json"):
+                yield feature_file
 
 
-def dump_json(file_path, dict_obj: dict):
-    try:
-        with open(file_path, "w") as f:
-            f.write(json.dumps(dict_obj))
-    except Exception as e:
-        pass
+def get_all_feature_files(in_dir: str, target_fn=None):
+    result = {}
+    functions = os.listdir(in_dir)
+    files = []
+    for func in functions:
+        if target_fn == None or target_fn == func: # target_fn in func:
+            files = get_feature_file(os.path.join(in_dir, func))
+            result[func] = files
+    return result
 
 
-def load_json(file_path) -> dict:
-    dict_obj = dict()
-    try:
-        with open(file_path, "r") as f:
-            dict_obj = json.load(f)
-    except Exception as e:
-        pass
-    return dict_obj
+'''
+{"func_name": [feature_paths]... }
+'''
+def features_to_analyze(args):
+    if args.outdir == None:
+        args.outdir = os.path.join(args.codebase, "cad-output")
+    else:
+        args.outdir = os.path.abspath(args.outdir)
+    if mkdir(args.outdir) != 0:
+        return []
+
+    if args.feature_dir == None:
+        args.feature_dir = os.path.join(args.outdir, "features")
+    else:
+        args.feature_dir = os.path.abspath(args.feature_dir)
+    if path_exist(args.feature_dir) != 0:
+        return {}
+
+    return get_all_feature_files(args.feature_dir, args.target_fn)
+
+
+def get_all_files_to_evaluate(dir):
+    for root, dirs, files in os.walk(dir):
+        for name in files:
+            count = 0
+            file = os.path.join(root, name)
+            if file.endswith(".c"):
+                count += 1
+                yield file
+                if count > 1:
+                    logger.warn(color_str(f"This is only to evaluate single .c files"))
+
+
+'''
+[path1,path2,...]
+'''
+def files_to_evaluate(args):
+    files = []
+    for file in get_all_files_to_evaluate(args.codebase):
+        files.append(file)
+    return files
