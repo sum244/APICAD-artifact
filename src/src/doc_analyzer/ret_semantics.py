@@ -6,9 +6,29 @@ If we do not know the type, then we just return "" and use the type of
 the function to predict the potential value. 
 '''
 def convert_str2value(string: str):
-    low_string = string.lower().split(" ")
     # xxx: TODO: non-/negative- ..., one/two/three ?
+    num_words = {
+        "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4,
+        "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9,
+        "ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13,
+        "fourteen": 14, "fifteen": 15, "sixteen": 16, "seventeen": 17,
+        "eighteen": 18, "nineteen": 19, "twenty": 20,
+        "thirty": 30, "forty": 40, "fifty": 50,
+        "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90,
+        "hundred": 100, "thousand": 1000, "million": 1000000
+    }
+
     zero_assumed_words = re.compile(r'\b(null|false|zero)\b') # r'\b(non)?-?negative|positive\b'
+    negative_pattern = re.compile(r'\bnegative\b', re.IGNORECASE)
+    positive_pattern = re.compile(r'\bpositive\b', re.IGNORECASE)
+    number_pattern = re.compile(r'\b(' + '|'.join(num_words.keys()) + r')\b', re.IGNORECASE)
+    low_string = string.lower()
+    if zero_assumed_words.search(low_string):
+        return 0
+    elif "true" in low_string:
+        return 1
+    elif "eof" in low_string:
+        return -1
     for word in low_string:
         if zero_assumed_words.search(word) != None: # "pointer"
             return 0
@@ -16,6 +36,21 @@ def convert_str2value(string: str):
             return 1
         elif word == "eof":
             return -1
+    is_negative = bool(negative_pattern.search(low_string))
+    is_positive = bool(positive_pattern.search(low_string))
+
+    # Sum up the values of all recognized number words
+    num_value = 0
+    for word in re.findall(number_pattern, low_string):
+        num_value += num_words[word]
+
+    if num_value > 0:
+        if is_negative:
+            return -num_value
+        elif is_positive:
+            return num_value
+        return num_value
+
     return ""
 
 
