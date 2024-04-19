@@ -16,7 +16,6 @@ class Dep_analyzer:
     def __init__(self, sentences, need_display=False):
         self.sentences = split_sent(sentences)
         self.dep_info, self.root_ids = self.__get_dep_info(need_display)
-        self.semantic_info = self.__get_semantic_info(need_display)
 
     '''
     Dispaly the output of dep_info()
@@ -92,15 +91,6 @@ class Dep_analyzer:
             break
         return result_tok, result_id
 
-    def __get_semantic_info(self, need_display=False):
-        sentences = self.sentences
-        semantic_roles = []
-        for i, sentence in enumerate(sentences):
-            roles = HanLP.semantic_role_labeling(sentence)
-            semantic_roles.append(roles)
-            print(f"Semantic Roles for Sentence {i+1}: {roles}")
-        return semantic_roles
-
     '''
     Preprocess sentences by their formatted dependency information.
     Output: {
@@ -154,16 +144,6 @@ class Dep_analyzer:
             result_list.append(result_dict)
         return result_list
 
-def process_semantic_structure(role_set, dep_info):
-    verb = role_set['verb']
-    for argument in role_set['arguments']:
-        if argument['role'] == 'Agent':
-            # Process agent
-            pass
-        elif argument['role'] == 'Patient':
-            # Process patient
-            pass
-
 
 '''
 Desc: Analyze sentences and extract semantics.
@@ -171,11 +151,6 @@ Input: sentences - different classified sentences in the documentation about an 
 '''
 def main(sentences, cur_func, func_list={}, display=False, target_types=[]):
     feature = {}
-    analyzer = Dep_analyzer(sentences, display)
-    for idx, semantic_info in enumerate(analyzer.semantic_roles):
-        for role_set in semantic_info:
-            if 'VERB' in role_set['tags']:
-                process_semantic_structure(role_set, analyzer.dep_info[idx])
     # For return
     if "return" in target_types and "ret" in sentences:
         # ret_feature format: {'value': [], 'cond': []}
