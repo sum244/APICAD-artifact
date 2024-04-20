@@ -2,7 +2,7 @@
 import os, time
 import logging
 from ..lib import utils, doc_utils
-from . import preprocess_openssl, preprocess_linux, preprocess_libc, extract_semantic
+from . import preprocess_linux, preprocess, extract_semantic
 
 this_path = os.path.dirname(os.path.realpath(__file__))
 logger = logging.getLogger("doc-analyzer")
@@ -23,9 +23,9 @@ def setup_parser(subparsers):
 
 
 targets = {
-    'glibc': preprocess_libc.handle_glibc,  # For glibc
+    'glibc': lambda doc_dir, out_dir: preprocess.handle(doc_dir, out_dir, 'glibc'),  # For glibc
     'linux': preprocess_linux.handle_linux,  # For Linux
-    'openssl': preprocess_openssl.handle_openssl,  # For openssl
+    'openssl': lambda doc_dir, out_dir: preprocess.handle(doc_dir, out_dir, 'openssl'),  # For openssl
 }
 
 

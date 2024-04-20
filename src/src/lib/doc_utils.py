@@ -156,6 +156,11 @@ def clean_text(doc_text):
         if re.search(abbr, doc_text):
             doc_text = re.sub(abbr, abbrs[abbr], doc_text)
     # xxx: TODO: replace bad character...
+
+    doc_text = re.sub(r'-\n', '', doc_text)
+    doc_text = re.sub(r'\*|\.|\n+$', '', doc_text)
+    doc_text = re.sub(r'\s+', ' ', doc_text)
+    doc_text = re.sub(r'\[\d+\]', '', doc_text)
     return doc_text
 
 
