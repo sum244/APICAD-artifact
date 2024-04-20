@@ -17,4 +17,4 @@ jobs:
     - name: Build the Docker image
       run: |
         docker build -t apicad_artifact -f docker/Dockerfile .
-        docker run -it apicad_artifact
+        docker run apicad_artifact
