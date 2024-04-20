@@ -18,6 +18,3 @@ jobs:
       run: |
         docker build -t apicad_artifact -f docker/Dockerfile .
         docker run apicad_artifact
-        cd src
-        make
-        make install
